@@ -20,7 +20,6 @@
 enum {
 	ETH_OUTPUT = 0,
 	HOLD,
-	LOCAL,
 	DEST_UNREACH,
 	ERROR,
 	EDGE_COUNT,
@@ -82,12 +81,6 @@ ip6_output_process(struct rte_graph *graph, struct rte_node *node, void **objs, 
 			edge = HOLD;
 			goto next;
 		}
-		// If the resolved next hop is local and the destination IP is ourselves,
-		// send to ip6_local.
-		if (nh->flags & GR_NH_F_LOCAL && rte_ipv6_addr_eq(&ip->dst_addr, &nh->ipv6)) {
-			edge = LOCAL;
-			goto next;
-		}
 
 		// Prepare ethernet layer info.
 		eth_data = eth_output_mbuf_data(mbuf);
@@ -115,7 +108,6 @@ static struct rte_node_register output_node = {
 	.next_nodes = {
 		[ETH_OUTPUT] = "eth_output",
 		[HOLD] = "ip6_hold",
-		[LOCAL] = "ip6_input_local",
 		[ERROR] = "ip6_output_error",
 		[DEST_UNREACH] = "ip6_error_dest_unreach",
 	},

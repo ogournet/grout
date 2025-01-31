@@ -17,6 +17,7 @@
 
 enum {
 	OUTPUT = 0,
+	LOCAL,
 	NO_HEADROOM,
 	NO_ROUTE,
 	EDGE_COUNT,
@@ -64,12 +65,17 @@ static uint16_t icmp6_output_process(
 
 		if (nh == NULL) {
 			edge = NO_ROUTE;
-			goto next;
+
+		} else if (nh->flags & GR_NH_F_LOCAL && rte_ipv6_addr_eq(&ip->dst_addr, &nh->ipv6)) {
+			edge = LOCAL;
+
+		} else {
+			o = ip6_output_mbuf_data(mbuf);
+			o->nh = nh;
+			o->iface = d->iface;
+			edge = OUTPUT;
 		}
-		o = ip6_output_mbuf_data(mbuf);
-		o->nh = nh;
-		o->iface = d->iface;
-		edge = OUTPUT;
+
 next:
 		rte_node_enqueue_x1(graph, node, edge, mbuf);
 	}
@@ -85,6 +91,7 @@ static struct rte_node_register icmp6_output_node = {
 	.nb_edges = EDGE_COUNT,
 	.next_nodes = {
 		[OUTPUT] = "ip6_output",
+		[LOCAL] = "ip6_input",
 		[NO_HEADROOM] = "error_no_headroom",
 		[NO_ROUTE] = "icmp6_output_no_route",
 	},
