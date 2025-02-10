@@ -35,7 +35,6 @@ struct srv6_steer_data *srv6_steer_get(const struct nexthop *nh) {
 }
 
 static struct srv6_steer_data *srv6_steer_get_by_dest6(uint16_t vrf_id, const struct ip6_net *dest6) {
-
 	struct nexthop *nh;
 	void *data;
 
