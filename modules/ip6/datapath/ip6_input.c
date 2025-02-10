@@ -31,6 +31,14 @@ enum edges {
 	EDGE_COUNT,
 };
 
+static rte_edge_t edges[256] = {FORWARD};
+
+void ip6_input_register_family(uint8_t family, const char *next_node) {
+	if (edges[family] != FORWARD)
+		ABORT("next node already registered for family=%u", family);
+	edges[family] = gr_node_attach_parent("ip6_input", next_node);
+}
+
 static uint16_t
 ip6_input_process(struct rte_graph *graph, struct rte_node *node, void **objs, uint16_t nb_objs) {
 	struct ip6_output_mbuf_data *d;
@@ -112,10 +120,8 @@ ip6_input_process(struct rte_graph *graph, struct rte_node *node, void **objs, u
 			edge = LOCAL;
 		else if (e->domain == ETH_DOMAIN_LOOPBACK)
 			edge = OUTPUT;
-		else if (nh->input_node != RTE_EDGE_ID_INVALID)
-			edge = nh->input_node;
 		else
-			edge = FORWARD;
+			edge = edges[nh->family];
 
 next:
 		if (gr_mbuf_is_traced(mbuf)) {

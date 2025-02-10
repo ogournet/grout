@@ -137,7 +137,6 @@ nexthop_new(struct nh_pool *nhp, uint16_t vrf_id, uint16_t iface_id, const void 
 		break;
 	}
 	nh->pool = nhp;
-	nh->input_node = RTE_EDGE_ID_INVALID;
 
 	nexthop_push_notification(NEXTHOP_EVENT_NEW, nh);
 	return nh;

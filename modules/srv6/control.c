@@ -77,7 +77,7 @@ static struct api_out srv6_steer_add(const void *request, void ** /*response*/) 
 		nh = nh6_new(req->s.vrf_id, GR_IFACE_ID_UNDEF, &req->s.dest6.ip);
 		if (nh == NULL)
 			return api_out(errno, 0);
-		nh->input_node = srv6_steer_v6_edge;
+		nh->family = GR_AF_SRV6_STEER;
 		nh->prefixlen = req->s.dest6.prefixlen;
 
 		ret = rib6_insert(req->s.vrf_id, GR_IFACE_ID_UNDEF, &req->s.dest6.ip,
@@ -93,7 +93,7 @@ static struct api_out srv6_steer_add(const void *request, void ** /*response*/) 
 		nh = nh4_new(req->s.vrf_id, GR_IFACE_ID_UNDEF, req->s.dest4.ip);
 		if (nh == NULL)
 			return api_out(errno, 0);
-		nh->input_node = srv6_steer_v4_edge;
+		nh->family = GR_AF_SRV6_STEER;
 		nh->prefixlen = req->s.dest4.prefixlen;
 
 		ret = rib4_insert(req->s.vrf_id, req->s.dest4.ip,
@@ -303,7 +303,7 @@ static struct api_out srv6_localsid_add(const void *request, void ** /*response*
 	nh = nh6_new(req->l.vrf_id, GR_IFACE_ID_UNDEF, &req->l.lsid);
 	if (nh == NULL)
 		return api_out(errno, 0);
-	nh->input_node = srv6_local_edge;
+	nh->family = GR_AF_SRV6_LOCAL;
 	nh->flags |= GR_NH_F_STATIC | GR_NH_F_REACHABLE;
 
 	// and add it to the routing table (/128), so ip6_input fib will

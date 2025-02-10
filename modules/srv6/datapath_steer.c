@@ -29,9 +29,6 @@ enum {
 	EDGE_COUNT,
 };
 
-rte_edge_t srv6_steer_v4_edge;
-rte_edge_t srv6_steer_v6_edge;
-
 struct trace_srv6_data {
 	union {
 		struct ip4_net dest4;
@@ -162,8 +159,8 @@ srv6_steer_process(struct rte_graph *graph, struct rte_node *node, void **objs, 
 }
 
 static void srv6_steer_register(void) {
-	srv6_steer_v4_edge = gr_node_attach_parent("ip_input", "srv6_steer");
-	srv6_steer_v6_edge = gr_node_attach_parent("ip6_input", "srv6_steer");
+	ip6_input_register_family(GR_AF_SRV6_STEER, "srv6_steer");
+	ip_input_register_family(GR_AF_SRV6_STEER, "srv6_steer");
 }
 
 static struct rte_node_register srv6_steer_node = {

@@ -9,6 +9,11 @@
 #include <endian.h>
 
 
+// define new nexthop->family
+#define GR_AF_SRV6_LOCAL (AF_MAX)
+#define GR_AF_SRV6_STEER (GR_AF_SRV6_LOCAL + 1)
+
+
 //
 // https://www.iana.org/assignments/segment-routing/segment-routing.xhtml
 //
@@ -61,8 +66,6 @@ struct srv6_localsid_data {
 struct srv6_localsid_data *srv6_localsid_get(const struct rte_ipv6_addr *lsid,
 					     uint16_t vrf_id);
 
-extern rte_edge_t srv6_local_edge;
-
 
 //
 // srv6 data shared between control - srv6_steer node
@@ -74,9 +77,6 @@ struct srv6_steer_data {
 };
 
 struct srv6_steer_data *srv6_steer_get(const struct nexthop *nh);
-
-extern rte_edge_t srv6_steer_v4_edge;
-extern rte_edge_t srv6_steer_v6_edge;
 
 
 #endif

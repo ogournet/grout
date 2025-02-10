@@ -209,7 +209,7 @@ next:
 }
 
 static void srv6_node_init(void) {
-	srv6_local_edge = gr_node_attach_parent("ip6_input", "srv6_local");
+	ip6_input_register_family(GR_AF_SRV6_LOCAL, "srv6_local");
 }
 
 
