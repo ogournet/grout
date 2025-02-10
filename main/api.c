@@ -6,6 +6,7 @@
 #include "module.h"
 
 #include <gr_api.h>
+#include <gr_event.h>
 #include <gr_log.h>
 #include <gr_macro.h>
 #include <gr_vec.h>
@@ -19,18 +20,144 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-static evutil_socket_t *notification_sockets;
+// List of subscribers to EVENT_TYPE_ALL
+static evutil_socket_t *all_events_subs;
+// 2 dimensional array of subscribers to events.
+//
+// Example to get a list of sockets subscribed to ev_type = 0xacdc0102:
+//
+//                           GR_INFRA_MODULE
+//                                  |
+//                                  v
+//           +-----------------------------------------------------+
+//  mod_subs | 0 | 1 | 2 | ...  | 0xacdc |  ...  | 0xfffe | 0xffff |
+//           +-----------------------------------------------------+
+//             NULL    NULL         |              NULL     NULL
+//                                  v
+//                      struct module_subscribers
+//                              sockets
+//                             +--------+
+//      IFACE_EVENT_UNKNOWN    | 0x0000 |
+//                             |--------|
+//     IFACE_EVENT_POST_ADD    | 0x0001 |
+//                             |--------|
+//                             | ...... |
+//                             |--------|
+//     NEXTHOP_EVENT_UPDATE -> | 0x0102 | -> gr_vec of evutil_socket_t
+//                             |--------|
+//                             | ...... |
+//                             |--------|
+//                             | 0xfffe |
+//                             |--------|
+//                             | 0xffff |
+//                             +--------+
+//
+struct module_subscribers {
+	evutil_socket_t *ev_subs[UINT16_MAX];
+};
+static struct module_subscribers *mod_subs[UINT16_MAX];
 
-void gr_api_push_notification(uint32_t evt, size_t len, const void *data) {
-	struct gr_api_notification n;
+static void api_send_notifications(uint32_t ev_type, const void *obj) {
+	struct module_subscribers *subs;
+	evutil_socket_t *socks = NULL;
+	struct gr_api_event e;
 	evutil_socket_t s;
-	n.type = evt;
-	n.payload_len = len;
+	void *data = NULL;
+	uint16_t mod, ev;
+	int len;
 
-	gr_vec_foreach (s, notification_sockets) {
-		send(s, &n, sizeof(n), MSG_DONTWAIT | MSG_NOSIGNAL);
+	mod = (ev_type >> 16) & 0xffff;
+	ev = ev_type & 0xffff;
+	subs = mod_subs[mod];
+	if (subs != NULL)
+		socks = subs->ev_subs[ev];
+
+	if (gr_vec_len(all_events_subs) == 0 && gr_vec_len(socks) == 0) {
+		// no subscribers
+		return;
+	}
+
+	if ((len = gr_event_serialize(ev_type, obj, &data)) < 0) {
+		LOG(ERR, "gr_event_serialize: %s", strerror(-len));
+		return;
+	}
+
+	e.ev_type = ev_type;
+	e.payload_len = len;
+
+	gr_vec_foreach (s, all_events_subs) {
+		send(s, &e, sizeof(e), MSG_DONTWAIT | MSG_NOSIGNAL);
 		send(s, data, len, MSG_DONTWAIT | MSG_NOSIGNAL);
 	}
+	gr_vec_foreach (s, socks) {
+		send(s, &e, sizeof(e), MSG_DONTWAIT | MSG_NOSIGNAL);
+		send(s, data, len, MSG_DONTWAIT | MSG_NOSIGNAL);
+	}
+
+	free(data);
+}
+
+static struct api_out subscribe(evutil_socket_t sock, const void *request) {
+	const struct gr_event_subscribe_req *req = request;
+	struct module_subscribers *subs;
+	evutil_socket_t s;
+	uint16_t mod, ev;
+
+	if (req->ev_type == EVENT_TYPE_ALL) {
+		gr_vec_foreach (s, all_events_subs) {
+			if (s == sock)
+				return api_out(0, 0); // already subscribed
+		}
+		gr_vec_add(all_events_subs, sock);
+		return api_out(0, 0);
+	}
+
+	mod = (req->ev_type >> 16) & 0xffff;
+	ev = req->ev_type & 0xffff;
+	subs = mod_subs[mod];
+
+	if (subs == NULL) {
+		mod_subs[mod] = subs = calloc(1, sizeof(*subs));
+		if (subs == NULL)
+			return api_out(ENOMEM, 0);
+	}
+	gr_vec_foreach (s, subs->ev_subs[ev]) {
+		if (s == sock)
+			return api_out(0, 0); // already subscribed
+	}
+	gr_vec_add(subs->ev_subs[ev], sock);
+
+	return api_out(0, 0);
+}
+
+static struct api_out unsubscribe(evutil_socket_t sock) {
+	unsigned i;
+
+	i = 0;
+	while (i < gr_vec_len(all_events_subs)) {
+		if (all_events_subs[i] == sock)
+			gr_vec_del_swap(all_events_subs, i);
+		else
+			i++;
+	}
+
+	for (uint16_t mod = 0; mod < ARRAY_DIM(mod_subs); mod++) {
+		struct module_subscribers *subs = mod_subs[mod];
+		if (subs == NULL)
+			continue;
+		for (uint16_t ev = 0; ev < ARRAY_DIM(subs->ev_subs); ev++) {
+			evutil_socket_t *sockets = subs->ev_subs[ev];
+			i = 0;
+			while (i < gr_vec_len(sockets)) {
+				if (sockets[i] == sock)
+					gr_vec_del_swap(sockets, i);
+				else
+					i++;
+			}
+		}
+	}
+
+	return api_out(0, 0);
 }
 
 static void finalize_fd(struct event *ev, void * /*priv*/) {
@@ -44,7 +171,8 @@ static ssize_t send_response(evutil_socket_t sock, struct gr_api_response *resp)
 		return errno_set(ENOMEM);
 
 	LOG(DEBUG,
-	    "for_id=%u len=%u status=%u %s",
+	    "fd=%d for_id=%u len=%u status=%u %s",
+	    sock,
 	    resp->for_id,
 	    resp->payload_len,
 	    resp->status,
@@ -125,21 +253,14 @@ static void read_cb(evutil_socket_t sock, short what, void * /*priv*/) {
 		}
 	}
 
-	if (req.type == GR_MAIN_ENABLE_NOTIFICATIONS) {
-		out.status = 0;
-		out.len = 0;
-		gr_vec_add(notification_sockets, sock);
+	LOG(DEBUG, "fd=%d id=%u req_type=0x%08x len=%u", sock, req.id, req.type, req.payload_len);
+
+	switch (req.type) {
+	case GR_MAIN_EVENT_SUBSCRIBE:
+		out = subscribe(sock, req_payload);
 		goto send;
-	} else if (req.type == GR_MAIN_DISABLE_NOTIFICATIONS) {
-		out.status = 0;
-		out.len = 0;
-		for (size_t i = 0; i < gr_vec_len(notification_sockets); i++) {
-			if (notification_sockets[i] == sock) {
-				gr_vec_del_swap(notification_sockets, i);
-				goto send;
-			}
-		}
-		out.status = ENOTCONN;
+	case GR_MAIN_EVENT_UNSUBSCRIBE:
+		out = unsubscribe(sock);
 		goto send;
 	}
 
@@ -149,13 +270,6 @@ static void read_cb(evutil_socket_t sock, short what, void * /*priv*/) {
 		out.len = 0;
 		goto send;
 	}
-
-	LOG(DEBUG,
-	    "request: id=%u type=0x%08x '%s' len=%u",
-	    req.id,
-	    req.type,
-	    handler->name,
-	    req.payload_len);
 
 	out = handler->callback(req_payload, &resp_payload);
 
@@ -197,14 +311,9 @@ retry_send:
 close:
 	free(req_payload);
 	free(resp);
+	unsubscribe(sock);
 	if (ev != NULL)
 		event_free_finalize(0, ev, finalize_fd);
-	for (size_t i = 0; i < gr_vec_len(notification_sockets); i++) {
-		if (notification_sockets[i] == sock) {
-			gr_vec_del_swap(notification_sockets, i);
-			break;
-		}
-	}
 }
 
 static void listen_cb(evutil_socket_t sock, short what, void * /*priv*/) {
@@ -224,7 +333,7 @@ static void listen_cb(evutil_socket_t sock, short what, void * /*priv*/) {
 		return;
 	}
 
-	LOG(DEBUG, "new connection");
+	LOG(DEBUG, "new connection fd=%d", fd);
 
 	ev = event_new(ev_base, fd, EV_READ | EV_CLOSED | EV_PERSIST | EV_FINALIZE, read_cb, NULL);
 	if (ev == NULL || event_add(ev, NULL) < 0) {
@@ -315,4 +424,14 @@ void api_socket_stop(struct event_base *) {
 	gr_vec_foreach (ev, events)
 		event_free_finalize(0, ev, finalize_fd);
 	gr_vec_free(events);
+}
+
+static struct gr_event_subscription ev_subscribtion = {
+	.callback = api_send_notifications,
+	.ev_count = 1,
+	.ev_types = {EVENT_TYPE_ALL},
+};
+
+RTE_INIT(init) {
+	gr_event_subscribe(&ev_subscribtion);
 }
