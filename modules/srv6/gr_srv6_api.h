@@ -11,36 +11,7 @@
 #include <gr_net_types.h>
 
 
-#define GR_IFACE_TYPE_SRV6_STEER 0x04
-#define GR_IFACE_TYPE_SRV6_LOCAL 0x05
 #define GR_SRV6_MODULE 0xfeef
-
-
-// srv6_steer iface ////////////////////////////////////////////////////////////
-
-
-// Info for GR_IFACE_TYPE_SRV6 interfaces
-// 1 interface for each binding sid or localsid
-// store the key to get the srv6 policy in hash table
-struct gr_iface_info_srv6_steer {
-	uint32_t index;
-};
-
-static_assert(sizeof(struct gr_iface_info_srv6_steer) <= MEMBER_SIZE(struct gr_iface, info));
-
-
-// srv6_local iface ////////////////////////////////////////////////////////////
-
-// Info for GR_IFACE_TYPE_SRV6 interfaces
-// 1 interface for each binding sid or localsid
-// store the key to get the srv6 policy in hash table
-struct gr_iface_info_srv6_local {
-	struct rte_ipv6_addr lsid;
-};
-
-static_assert(sizeof(struct gr_iface_info_srv6_local) <= MEMBER_SIZE(struct gr_iface, info));
-
-
 
 
 // steer ///////////////////////////////////////////////////////////////////
