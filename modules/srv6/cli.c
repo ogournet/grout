@@ -24,7 +24,8 @@ static cmd_status_t srv6_steer_add(const struct gr_api_client *c, const struct e
 	if (n == NULL || (n = ec_pnode_get_parent(n)) == NULL || ec_pnode_len(n) < 1)
 		return CMD_ERROR;
 	len = sizeof(*req) + sizeof(req->s.nh[0]) * ec_pnode_len(n);
-	req = calloc(1, len);
+	if ((req = calloc(1, len)) == NULL)
+		return CMD_ERROR;
 	req->s.n_nh = ec_pnode_len(n);
 
 	// parse NEXT list.

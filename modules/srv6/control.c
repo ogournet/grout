@@ -106,6 +106,8 @@ static struct api_out srv6_steer_add(const void *request, void ** /*response*/) 
 
 	// create local steer data
 	sd = calloc(1, sizeof(*sd) + sizeof(sd->nh[0]) * req->s.n_nh);
+	if (sd == NULL)
+		return api_out(ENOMEM, 0);
 	sd->gr_nh = nexthop_incref(nh);
 	sd->n_nh = req->s.n_nh;
 	memcpy(sd->nh, req->s.nh, sizeof(sd->nh[0]) * req->s.n_nh);
@@ -176,12 +178,16 @@ static struct api_out srv6_steer_list(const void *request, void **response) {
 	}
 	if (sd_list == NULL) {
 		resp = calloc(1, sizeof (*resp));
+		if (resp == NULL)
+			return api_out(ENOMEM, 0);
 		*response = resp;
 		return api_out(0, sizeof (*resp));
 	}
 
 	len += sizeof(*resp) + sizeof(struct gr_srv6_steer) * gr_vec_len(sd_list);
 	resp = calloc(1, len);
+	if (resp == NULL)
+		return api_out(ENOMEM, 0);
 	resp->n_steer = gr_vec_len(sd_list);
 	ptr = resp->steer;
 	for (i = 0; i < resp->n_steer; i++) {
@@ -275,7 +281,7 @@ static struct api_out srv6_localsid_add(const void *request, void ** /*response*
 	struct nexthop *nh;
 	int r;
 
-	// create local nexthop for our localsid.
+	// create local nexthop for our localsid
 	nh = nh6_new(req->l.vrf_id, GR_IFACE_ID_UNDEF, &req->l.lsid);
 	if (nh == NULL)
 		return api_out(errno, 0);
@@ -286,15 +292,19 @@ static struct api_out srv6_localsid_add(const void *request, void ** /*response*
 	// match this entry for srv6 pkt with DA == localsid, and will
 	// follow nh->input_node => srv6_localsid
 	r = rib6_insert(req->l.vrf_id, GR_IFACE_ID_UNDEF, &req->l.lsid, 128, nh);
-	if (r < 0) {
-		nexthop_decref(nh);
+	if (r < 0)
 		return api_out(-r, 0);
-	}
 
+	// init data for srv6 module
 	data = calloc(1, sizeof(*data));
+	if (data == NULL) {
+		rib6_delete(req->l.vrf_id, GR_IFACE_ID_UNDEF, &req->l.lsid, 128);
+		return api_out(ENOMEM, 0);
+	}
 	data->behavior = str_to_behavior(req->l.behavior);
 
 	if (rte_hash_add_key_data(srv6_localsid_hash, &key, data) < 0) {
+		rib6_delete(req->l.vrf_id, GR_IFACE_ID_UNDEF, &req->l.lsid, 128);
 		free(data);
 		return api_out(ENOMEM, 0);
 	}
@@ -343,8 +353,13 @@ static struct api_out srv6_localsid_list(const void *request, void **response) {
 		}
 	}
 	resp = calloc(1, len);
+	if (resp == NULL) {
+		gr_vec_free(odata);
+		return api_out(ENOMEM, 0);
+	}
 	resp->n_lsid = gr_vec_len(odata);
 	memcpy(resp->lsid, odata, len - sizeof(*resp));
+	gr_vec_free(odata);
 
 	*response = resp;
 	return api_out(0, len);
