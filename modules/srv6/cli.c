@@ -16,7 +16,6 @@ static cmd_status_t srv6_steer_add(const struct gr_api_client *c, const struct e
 	const struct ec_pnode *n;
 	const struct ec_strvec *v;
 	const char *str;
-	void *resp_ptr = NULL;
 	size_t len;
 	int ret, i;
 
@@ -54,21 +53,15 @@ static cmd_status_t srv6_steer_add(const struct gr_api_client *c, const struct e
 	}
 
 	// send command
-	ret = gr_api_client_send_recv(c, GR_SRV6_STEER_ADD, len, req, &resp_ptr);
+	ret = gr_api_client_send_recv(c, GR_SRV6_STEER_ADD, len, req, NULL);
 	free(req);
-	if (ret < 0)
-		return CMD_ERROR;
 
-	free(resp_ptr);
-	return CMD_SUCCESS;
+	return ret < 0 ? CMD_ERROR: CMD_SUCCESS;
 }
 
 static cmd_status_t srv6_steer_del(const struct gr_api_client *c, const struct ec_pnode *p) {
-	struct gr_srv6_steer_del_req req;
+	struct gr_srv6_steer_del_req req = {};
 	const char *s;
-	void *resp_ptr = NULL;
-
-	memset(&req, 0x00, sizeof (req));
 
 	if ((s = arg_str(p, "DEST6")) != NULL) {
 		if (ip6_net_parse(s, &req.s.dest6, true) < 0)
@@ -85,10 +78,9 @@ static cmd_status_t srv6_steer_del(const struct gr_api_client *c, const struct e
 	if (arg_u16(p, "VRF", &req.s.vrf_id) < 0 && errno != ENOENT)
 		return CMD_ERROR;
 
-	if (gr_api_client_send_recv(c, GR_SRV6_STEER_DEL, sizeof (req), &req, &resp_ptr) < 0)
+	if (gr_api_client_send_recv(c, GR_SRV6_STEER_DEL, sizeof (req), &req, NULL) < 0)
 		return CMD_ERROR;
 
-	free(resp_ptr);
 	return CMD_SUCCESS;
 }
 
@@ -132,7 +124,6 @@ static cmd_status_t srv6_localsid_add(const struct gr_api_client *c, const struc
 	struct gr_srv6_localsid_add_req req = { .l.vrf_id = 0 };
 	const struct ec_pnode *n;
 	const struct ec_strvec *v;
-	void *resp_ptr = NULL;
 
 	n = ec_pnode_find(p, "behavior");
 	if (n == NULL || (n = ec_pnode_next(n)) == NULL)
@@ -146,17 +137,15 @@ static cmd_status_t srv6_localsid_add(const struct gr_api_client *c, const struc
 	if (arg_u16(p, "VRF", &req.l.vrf_id) < 0 && errno != ENOENT)
 		return CMD_ERROR;
 
-	if (gr_api_client_send_recv(c, GR_SRV6_LOCALSID_ADD, sizeof (req), &req, &resp_ptr) < 0)
+	if (gr_api_client_send_recv(c, GR_SRV6_LOCALSID_ADD, sizeof (req), &req, NULL) < 0)
 		return CMD_ERROR;
 
-	free(resp_ptr);
 	return CMD_SUCCESS;
 }
 
 
 static cmd_status_t srv6_localsid_del(const struct gr_api_client *c, const struct ec_pnode *p) {
 	struct gr_srv6_localsid_del_req req = { .vrf_id = 0 };
-	void *resp_ptr = NULL;
 
 	if (arg_ip6(p, "SID", &req.lsid) < 0)
 		return CMD_ERROR;
@@ -164,10 +153,9 @@ static cmd_status_t srv6_localsid_del(const struct gr_api_client *c, const struc
 	if (arg_u16(p, "VRF", &req.vrf_id) < 0 && errno != ENOENT)
 		return CMD_ERROR;
 
-	if (gr_api_client_send_recv(c, GR_SRV6_LOCALSID_DEL, sizeof (req), &req, &resp_ptr) < 0)
+	if (gr_api_client_send_recv(c, GR_SRV6_LOCALSID_DEL, sizeof (req), &req, NULL) < 0)
 		return CMD_ERROR;
 
-	free(resp_ptr);
 	return CMD_SUCCESS;
 }
 
