@@ -106,7 +106,7 @@ static struct api_out srv6_steer_add(const void *request, void ** /*response*/) 
 	// create local steer data
 	sd = calloc(1, sizeof(*sd) + sizeof(sd->nh[0]) * req->s.n_nh);
 	if (sd == NULL)
-		return api_out(ENOMEM, 0);
+		goto free_rib;
 	sd->gr_nh = nexthop_incref(nh);
 	sd->n_nh = req->s.n_nh;
 	memcpy(sd->nh, req->s.nh, sizeof(sd->nh[0]) * req->s.n_nh);
@@ -116,10 +116,18 @@ static struct api_out srv6_steer_add(const void *request, void ** /*response*/) 
 	if (ret < 0) {
 		nexthop_decref(sd->gr_nh);
 		free(sd);
-		return api_out(ENOMEM, 0);
+		goto free_rib;
 	}
 
 	return api_out(0, 0);
+
+ free_rib:
+	if (req->s.is_dest6)
+		rib6_delete(req->s.vrf_id, GR_IFACE_ID_UNDEF, &req->s.dest6.ip,
+			    req->s.dest6.prefixlen);
+	else
+		rib4_delete(req->s.vrf_id, req->s.dest4.ip, req->s.dest4.prefixlen);
+	return api_out(ENOMEM, 0);
 }
 
 static struct api_out srv6_steer_del(const void *request, void ** /*response*/) {
@@ -131,18 +139,15 @@ static struct api_out srv6_steer_del(const void *request, void ** /*response*/) 
 		if (sd == NULL)
 			return api_out(ENOENT, 0);
 
-		if (rib6_delete(req->s.vrf_id, GR_IFACE_ID_UNDEF, &req->s.dest6.ip,
-				req->s.dest6.prefixlen) < 0)
-			return api_out(errno, 0);
+		rib6_delete(req->s.vrf_id, GR_IFACE_ID_UNDEF, &req->s.dest6.ip,
+			    req->s.dest6.prefixlen);
 
 	} else {
 		sd = srv6_steer_get_by_dest4(req->s.vrf_id, &req->s.dest4);
 		if (sd == NULL)
 			return api_out(ENOENT, 0);
 
-		if (rib4_delete(req->s.vrf_id, req->s.dest4.ip,
-				req->s.dest4.prefixlen) < 0)
-			return api_out(errno, 0);
+		rib4_delete(req->s.vrf_id, req->s.dest4.ip, req->s.dest4.prefixlen);
 	}
 
 	nexthop_decref(sd->gr_nh);
@@ -227,6 +232,20 @@ static void srv6_steer_init(void) {
 	srv6_steer_hash = rte_hash_create(&params);
 	if (srv6_steer_hash == NULL)
 		ABORT("rte_hash_create(srv6_steer)");
+}
+
+static void srv6_steer_release(void) {
+	const void *key = NULL;
+	void *data = NULL;
+	uint32_t iter;
+
+	iter = 0;
+	while (rte_hash_iterate(srv6_steer_hash, &key, &data, &iter) >= 0) {
+		rte_hash_del_key(srv6_steer_hash, key);
+		free(data);
+	}
+	rte_hash_free(srv6_steer_hash);
+	srv6_steer_hash = NULL;
 }
 
 
@@ -380,7 +399,19 @@ static void srv6_localsid_init(void) {
 		ABORT("rte_hash_create(srv6_localsid)");
 }
 
+static void srv6_localsid_release(void) {
+	const void *key = NULL;
+	void *data = NULL;
+	uint32_t iter;
 
+	iter = 0;
+	while (rte_hash_iterate(srv6_localsid_hash, &key, &data, &iter) >= 0) {
+		rte_hash_del_key(srv6_localsid_hash, key);
+		free(data);
+	}
+	rte_hash_free(srv6_localsid_hash);
+	srv6_localsid_hash = NULL;
+}
 
 
 // srv6 module //////////////////////////////////////////////////////////
@@ -392,10 +423,8 @@ static void srv6_init(struct event_base *) {
 }
 
 static void srv6_fini(struct event_base *) {
-	rte_hash_free(srv6_steer_hash);
-	srv6_steer_hash = NULL;
-	rte_hash_free(srv6_localsid_hash);
-	srv6_localsid_hash = NULL;
+	srv6_steer_release();
+	srv6_localsid_release();
 }
 
 

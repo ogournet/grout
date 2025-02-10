@@ -39,12 +39,16 @@ static cmd_status_t srv6_steer_add(const struct gr_api_client *c, const struct e
 	}
 
 	if ((str = arg_str(p, "DEST6")) != NULL) {
-		if (ip6_net_parse(str, &req->s.dest6, true) < 0)
+		if (ip6_net_parse(str, &req->s.dest6, true) < 0) {
+			free(req);
 			return CMD_ERROR;
+		}
 		req->s.is_dest6 = true;
 	} else if ((str = arg_str(p, "DEST4")) != NULL) {
-		if (ip4_net_parse(str, &req->s.dest4, true) < 0)
+		if (ip4_net_parse(str, &req->s.dest4, true) < 0) {
+			free(req);
 			return CMD_ERROR;
+		}
 		req->s.is_dest6 = false;
 	}
 
